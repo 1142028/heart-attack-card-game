@@ -1,438 +1,651 @@
 ﻿#include <windows.h>
-#include <tchar.h>
+#include <string>
+#include <vector>
+#include <array>
+#include <random>
+#include <sstream>
+#include <algorithm>
 
-#define ID_SINGLE  1001
-#define ID_DOUBLE 1002
-#define ID_MUTIPLE 1003
-#define ID_HELP_ABOUT 1004
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "imm32.lib")
 
-void DrawSuit(HDC hdc, int x, int y, LPCTSTR suit, bool flip = false)
+struct Suit {
+	const wchar_t* symbol;
+	const wchar_t* name;
+	COLORREF color;
+};
+struct CardValue {
+	const wchar_t* label;
+	int value;
+};
+struct PipPos {
+	int dx;
+	int dy;
+};
+class TextRenderer {
+public:
+	static void Draw(
+		HDC hdc,
+		int x, int y,
+		const std::wstring& text,
+		int fontSize,
+		COLORREF color,
+		UINT textAlign,
+		int angle10 = 0,
+		const wchar_t* fontName = L"Segoe UI Symbol",
+		int fontWeight = FW_NORMAL)
+	{
+		LOGFONTW lf = {};
+		lf.lfHeight = -fontSize;
+		lf.lfEscapement = angle10;
+		lf.lfOrientation = angle10;
+		lf.lfWeight = fontWeight;
+		lf.lfCharSet = DEFAULT_CHARSET;
+		lstrcpyW(lf.lfFaceName, fontName);
+		HFONT hFont = CreateFontIndirectW(&lf);
+		HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+		COLORREF oldColor = SetTextColor(hdc, color);
+		int oldBkMode = SetBkMode(hdc, TRANSPARENT);
+		UINT oldAlign = SetTextAlign(hdc, textAlign);
+		TextOutW(hdc, x, y, text.c_str(), static_cast<int>(text.length()));
+		SetTextAlign(hdc, oldAlign);
+		SetBkMode(hdc, oldBkMode);
+		SetTextColor(hdc, oldColor);
+		SelectObject(hdc, hOldFont);
+		DeleteObject(hFont);
+	}
+};
+class PipLayout {
+public:
+	static std::vector<PipPos> GetPositions(int count) {
+		int top = -55;
+		int bottom = 55;
+		int v31 = top / 2;
+		int v32 = -v31;
+		int v41 = top / 3;
+		int v42 = -v41;
+		int v51 = (top + v41) / 2;
+		int v52 = -v51;
+		int mid = 0;
+		int cen = 0;
+		int left = -25;
+		int right = 25;
+		std::vector<std::vector<PipPos>> positions(11);
+		positions[1] = { {cen, mid} };
+		positions[2] = { {cen, top}, {cen, bottom} };
+		positions[3] = { {cen, top}, {cen, mid}, {cen, bottom} };
+		positions[4] = { {left, top}, {right, top}, {left, bottom}, {right, bottom} };
+		positions[5] = { {left, top}, {right, top}, {cen, mid}, {left, bottom}, {right, bottom} };
+		positions[6] = { {left, top}, {right, top}, {left, mid}, {right, mid}, {left, bottom}, {right, bottom} };
+		positions[7] = { {left, top}, {right, top}, {cen, v31}, {left, mid}, {right, mid}, {left, bottom}, {right, bottom} };
+		positions[8] = { {left, top}, {right, top}, {cen, v31}, {left, mid}, {right, mid}, {cen, v32}, {left, bottom}, {right, bottom} };
+		positions[9] = { {left, top}, {right, top}, {cen, v51}, {left, v41}, {right, v41}, {left, v42}, {right, v42}, {left, bottom}, {right, bottom} };
+		positions[10] = { {left, top}, {right, top}, {cen, v51}, {left, v41}, {right, v41}, {left, v42}, {right, v42}, {cen, v52}, {left, bottom}, {right, bottom} };
+		if (count < 1 || count > 10) return {};
+		return positions[count];
+	}
+};
+class Card {
+private:
+	Suit suit_;
+	CardValue value_;
+	static constexpr int WIDTH = 120;
+	static constexpr int HEIGHT = 180;
+	static constexpr int PADDING = 10;
+public:
+	Card(const CardValue& value, const Suit& suit)
+		: suit_(suit), value_(value) {
+	}
+	void Draw(HDC hdc, int left, int top) const {
+		DrawCardFrame(hdc, left, top);
+		int innerLeft = left + PADDING;
+		int innerTop = top + PADDING;
+		int innerW = WIDTH - 2 * PADDING;
+		int innerH = HEIGHT - 2 * PADDING;
+		int innerCx = innerLeft + innerW / 2;
+		int innerCy = innerTop + innerH / 2;
+		DrawTopLeftCorner(hdc, innerLeft, innerTop);
+		DrawBottomRightCorner(hdc, left, top);
+		if (value_.value >= 1 && value_.value <= 10) {
+			DrawPips(hdc, value_.value, innerCx, innerCy);
+		}
+		else {
+			DrawFaceCard(hdc, innerCx, innerCy);
+		}
+	}
+	static int GetWidth() { return WIDTH; }
+	static int GetHeight() { return HEIGHT; }
+
+private:
+	void DrawCardFrame(HDC hdc, int left, int top) const {
+		HBRUSH hWhite = CreateSolidBrush(RGB(255, 255, 255));
+		HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hWhite);
+		HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
+		HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+		RoundRect(hdc, left, top, left + WIDTH, top + HEIGHT, 10, 10);
+		SelectObject(hdc, hOldBrush);
+		SelectObject(hdc, hOldPen);
+		DeleteObject(hWhite);
+		DeleteObject(hPen);
+	}
+	void DrawTopLeftCorner(HDC hdc, int innerLeft, int innerTop) const {
+		TextRenderer::Draw(
+			hdc,
+			innerLeft,
+			innerTop + 16,
+			value_.label,
+			16,
+			suit_.color,
+			TA_LEFT | TA_BASELINE,
+			0,
+			L"Segoe UI",
+			FW_NORMAL
+		);
+		TextRenderer::Draw(
+			hdc,
+			innerLeft,
+			innerTop + 32,
+			suit_.symbol,
+			16,
+			suit_.color,
+			TA_LEFT | TA_BASELINE,
+			0,
+			L"Segoe UI Symbol",
+			FW_NORMAL
+		);
+	}
+	void DrawBottomRightCorner(HDC hdc, int left, int top) const {
+		TextRenderer::Draw(
+			hdc,
+			left + WIDTH - PADDING * 2,
+			top + HEIGHT - PADDING * 2 - 16,
+			suit_.symbol,
+			16,
+			suit_.color,
+			TA_RIGHT | TA_BASELINE,
+			1800,
+			L"Segoe UI Symbol",
+			FW_NORMAL
+		);
+		TextRenderer::Draw(
+			hdc,
+			left + WIDTH - PADDING * 2,
+			top + HEIGHT - PADDING * 2,
+			value_.label,
+			16,
+			suit_.color,
+			TA_RIGHT | TA_BASELINE,
+			1800,
+			L"Segoe UI",
+			FW_NORMAL
+		);
+	}
+	void DrawPips(HDC hdc, int count, int cx, int cy) const {
+		auto positions = PipLayout::GetPositions(count);
+		for (const auto& p : positions) {
+			int x = cx + p.dx;
+			int y = cy + p.dy;
+			if (p.dy < 5) {
+				TextRenderer::Draw(
+					hdc,
+					x, y,
+					suit_.symbol,
+					24,
+					suit_.color,
+					TA_CENTER | TA_BASELINE,
+					0,
+					L"Segoe UI Symbol",
+					FW_NORMAL
+				);
+			}
+			else {
+				TextRenderer::Draw(
+					hdc,
+					x, y,
+					suit_.symbol,
+					24,
+					suit_.color,
+					TA_CENTER | TA_BASELINE,
+					1800,
+					L"Segoe UI Symbol",
+					FW_NORMAL
+				);
+			}
+		}
+	}
+	void DrawFaceCard(HDC hdc, int cx, int cy) const {
+		TextRenderer::Draw(
+			hdc,
+			cx,
+			cy + 14,
+			value_.label,
+			40,
+			suit_.color,
+			TA_CENTER | TA_BASELINE,
+			0,
+			L"Segoe UI",
+			FW_BOLD
+		);
+	}
+};
+
+class PokerWindowApp {
+	enum class GameMode {
+		NONE,
+		SINGLE_PLAYER,
+		TWO_PLAYER
+	};
+
+	enum class Player {
+		NONE,
+		PLAYER_A,
+		PLAYER_B
+	};
+private:
+	HINSTANCE hInstance_;
+	HWND hwnd_;
+	int currentSuitIndex_ = 0;
+	int currentValueIndex_ = 0;
+	int currentShownSeqIndex_ = 0;
+	int nextSeqIndex_ = 0;
+	bool running_ = false;
+	bool hasCurrentItem_ = false;
+	ULONGLONG shownTick_ = 0;
+	std::mt19937 rng_;
+	std::vector<int> deckOrder_;
+	size_t deckPos_ = 0;
+	bool anyMatchOccurred_ = false;
+	static constexpr const wchar_t* CLASS_NAME = L"PokerCardWin32MenuReaction";
+	static constexpr UINT TIMER_ID = 1001;
+	static constexpr UINT ID_MENU_START = 40001;
+	static constexpr UINT ID_MENU_STOP = 40002;
+	static constexpr UINT ID_MENU_EXIT = 40003;
+	static constexpr UINT ID_SINGLE = 10001;
+	static constexpr UINT ID_DOUBLE = 10002;
+	static constexpr UINT ID_MULTIPLE = 10003;
+	static constexpr UINT ID_HELP_ABOUT = 10004;
+
+	// 遊戲模式控制
+	GameMode mode_ = GameMode::NONE;
+
+	// 雙人賽勝負標籤 (0: 未定, 1: 玩家A勝, 2: 玩家B勝)
+	int matchWinner_ = 0;
+
+	// 記錄當前這張牌是否有任一玩家按過
+	bool currentCardProcessed_ = false;
+public:
+	explicit PokerWindowApp(HINSTANCE hInstance)
+		: hInstance_(hInstance), hwnd_(nullptr), rng_(std::random_device{}()) {
+	}
+	bool Create(int nCmdShow) {
+		WNDCLASSW wc = {};
+		wc.lpfnWndProc = PokerWindowApp::WndProc;
+		wc.hInstance = hInstance_;
+		wc.lpszClassName = CLASS_NAME;
+		wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+		wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+		RegisterClassW(&wc);
+		hwnd_ = CreateWindowExW(
+			0,
+			CLASS_NAME,
+			L"Win32 API 撲克牌反應測試",
+			WS_OVERLAPPEDWINDOW,
+			CW_USEDEFAULT, CW_USEDEFAULT,
+			1000, 700,
+			nullptr,
+			nullptr,
+			hInstance_,
+			this
+		);
+		if (!hwnd_) return false;
+		SetMenu(hwnd_, CreateAppMenu());
+		ShowWindow(hwnd_, nCmdShow);
+		UpdateWindow(hwnd_);
+		return true;
+	}
+	int Run() {
+		MSG msg = {};
+		while (GetMessageW(&msg, nullptr, 0, 0)) {
+			TranslateMessage(&msg);
+			DispatchMessageW(&msg);
+		}
+		return static_cast<int>(msg.wParam);
+	}
+private:
+	HMENU CreateAppMenu() {
+		HMENU hMenuBar = CreateMenu();
+		HMENU hGameMenu = CreatePopupMenu();
+		AppendMenuW(hGameMenu, MF_STRING, ID_MENU_START, L"開始");
+		AppendMenuW(hGameMenu, MF_STRING, ID_MENU_STOP, L"停止");
+		AppendMenuW(hGameMenu, MF_SEPARATOR, 0, nullptr);
+		AppendMenuW(hGameMenu, MF_STRING, ID_MENU_EXIT, L"結束");
+		AppendMenuW(hMenuBar, MF_POPUP, (UINT_PTR)hGameMenu, L"單人計時賽");
+		AppendMenuW(hMenuBar, MF_STRING, ID_DOUBLE, L"雙人鍵盤競速");
+		AppendMenuW(hMenuBar, MF_STRING, ID_MULTIPLE, L"多人連線競賽");
+		AppendMenuW(hMenuBar, MF_STRING, ID_HELP_ABOUT, L"說明");
+		return hMenuBar;
+	}
+	static const std::array<Suit, 4>& GetSuits() {
+		static const std::array<Suit, 4> suits = {
+		Suit{ L"♠", L"spade", RGB(0, 0, 0) },
+		Suit{ L"♥", L"heart", RGB(220, 0, 0) },
+		Suit{ L"♦", L"diamond", RGB(220, 0, 0) },
+		Suit{ L"♣", L"club", RGB(0, 0, 0) }
+		};
+		return suits;
+	}
+	static const std::array<CardValue, 13>& GetCardValues() {
+		static const std::array<CardValue, 13> values = {
+		CardValue{ L"A", 1 }, CardValue{ L"2", 2 }, CardValue{ L"3", 3 },
+		CardValue{ L"4", 4 }, CardValue{ L"5", 5 }, CardValue{ L"6", 6 },
+		CardValue{ L"7", 7 }, CardValue{ L"8", 8 }, CardValue{ L"9", 9 },
+		CardValue{ L"10", 10 }, CardValue{ L"J", 11 }, CardValue{ L"Q", 12 },
+		CardValue{ L"K", 13 }
+		};
+		return values;
+	}
+	static const std::array<const wchar_t*, 13>& GetSequenceLabels() {
+		static const std::array<const wchar_t*, 13> seq = {
+		L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9", L"10", L"J", L"Q", L"K"
+		};
+		return seq;
+	}
+	int RandomIntervalMs() {
+		int minMs = (mode_ == GameMode::TWO_PLAYER) ? 1500 : 100;
+		int maxMs = (mode_ == GameMode::TWO_PLAYER) ? 2500 : 1000;
+		std::uniform_int_distribution<int> dist(minMs, maxMs);
+		return dist(rng_);
+	}
+	void BuildShuffledDeck() {
+		deckOrder_.clear();
+		deckOrder_.reserve(52);
+		for (int i = 0; i < 52; ++i) {
+			deckOrder_.push_back(i);
+		}
+		std::shuffle(deckOrder_.begin(), deckOrder_.end(), rng_);
+		deckPos_ = 0;
+	}
+	bool IsCardAndTextMatched() const {
+		const auto& values = GetCardValues();
+		const auto& seq = GetSequenceLabels();
+		std::wstring cardText = values[currentValueIndex_].label;
+		std::wstring textShown = seq[currentShownSeqIndex_];
+		if (cardText == L"A" && textShown == L"1") {
+			return true;
+		}
+		return cardText == textShown;
+	}
+	void StartSequence(GameMode selectedMode) {
+		StopSequence();
+		mode_ = selectedMode;
+		running_ = true;
+		hasCurrentItem_ = false;
+		nextSeqIndex_ = 0;
+		currentShownSeqIndex_ = 0;
+		anyMatchOccurred_ = false;
+
+		matchWinner_ = 0; // 重設贏家
+		currentCardProcessed_ = false;
+
+		BuildShuffledDeck();
+
+		ShowNextItem();
+		ScheduleNextTimer();
+		InvalidateRect(hwnd_, nullptr, TRUE);
+	}
+	void StopSequence() {
+		KillTimer(hwnd_, TIMER_ID);
+		running_ = false;
+	}
+
+	// 核心修改：雙人一次定勝負搶答邏輯
+	void HandleTwoPlayerKeyPress(Player player) {
+		if (!running_ || !hasCurrentItem_ || currentCardProcessed_) return;
+
+		bool isMatch = IsCardAndTextMatched();
+		currentCardProcessed_ = true;
+
+		if (isMatch) {
+			// 吻合時按對了：按下的人獲勝
+			matchWinner_ = (player == Player::PLAYER_A) ? 1 : 2;
+		}
+		else {
+			// 不吻合時按錯了：沒按的人（對手）獲勝
+			matchWinner_ = (player == Player::PLAYER_A) ? 2 : 1;
+		}
+
+		// 判定出勝負，立刻停下鬧鐘並結算遊戲
+		StopSequence();
+		InvalidateRect(hwnd_, nullptr, TRUE);
+		HandleGameEnd();
+	}
+
+	void ScheduleNextTimer() {
+		KillTimer(hwnd_, TIMER_ID);
+		SetTimer(hwnd_, TIMER_ID, RandomIntervalMs(), nullptr);
+	}
+	bool ShowNextItem() {
+		currentCardProcessed_ = false;
+		if (deckPos_ >= deckOrder_.size()) {
+			return false;
+		}
+		int cardId = deckOrder_[deckPos_++];
+		currentSuitIndex_ = cardId / 13;
+		currentValueIndex_ = cardId % 13;
+		currentShownSeqIndex_ = nextSeqIndex_;
+		nextSeqIndex_ = (nextSeqIndex_ + 1) % 13;
+		shownTick_ = GetTickCount64();
+		hasCurrentItem_ = true;
+		if (IsCardAndTextMatched()) {
+			anyMatchOccurred_ = true;
+		}
+		InvalidateRect(hwnd_, nullptr, TRUE);
+		return true;
+	}
+	void HandleGameEnd() {
+		StopSequence();
+		if (mode_ == GameMode::SINGLE_PLAYER) {
+			if (!anyMatchOccurred_) {
+				MessageBoxW(hwnd_, L"52 張牌全部顯示完畢，結果：失敗", L"失敗", MB_OK);
+			}
+		}
+		else if (mode_ == GameMode::TWO_PLAYER) {
+			std::wstringstream ss;
+			ss << L"【一局定勝負 賽事結果】\n\n";
+
+			if (matchWinner_ == 1) {
+				ss << L"🎉 恭喜 玩家 A (A鍵) 獲勝！";
+			}
+			else if (matchWinner_ == 2) {
+				ss << L"🎉 恭喜 玩家 B (L鍵) 獲勝！";
+			}
+			else {
+				ss << L"🤝 52張牌發完，無人觸發勝負條件。平手！";
+			}
+
+			MessageBoxW(hwnd_, ss.str().c_str(), L"比賽結束", MB_OK | MB_ICONINFORMATION);
+		}
+	}
+	void HandleSpacePressed() {
+		if (!running_ || !hasCurrentItem_) return;
+		ULONGLONG now = GetTickCount64();
+		ULONGLONG elapsed = now - shownTick_;
+		bool correct = IsCardAndTextMatched();
+		StopSequence();
+		const auto& seq = GetSequenceLabels();
+		const auto& values = GetCardValues();
+		std::wstring textShown = seq[currentShownSeqIndex_];
+		std::wstring cardText = values[currentValueIndex_].label;
+		std::wstringstream ss;
+		ss << L"撲克牌：" << cardText << L"\n"
+			<< L"右側數字：" << textShown << L"\n"
+			<< L"結果：" << (correct ? L"答對" : L"失敗") << L"\n"
+			<< L"反應時間：" << elapsed << L" 毫秒";
+		MessageBoxW(
+			hwnd_,
+			ss.str().c_str(),
+			correct ? L"答對" : L"失敗",
+			MB_OK | (correct ? MB_ICONINFORMATION : MB_ICONWARNING)
+		);
+	}
+	void OnPaint() {
+		PAINTSTRUCT ps;
+		HDC hdc = BeginPaint(hwnd_, &ps);
+		RECT rc;
+		GetClientRect(hwnd_, &rc);
+		HBRUSH bg = CreateSolidBrush(RGB(255, 255, 255));
+		FillRect(hdc, &rc, bg);
+		DeleteObject(bg);
+		if (hasCurrentItem_) {
+			if (mode_ == GameMode::TWO_PLAYER) {
+				// 雙人賽提示文字
+				TextRenderer::Draw(
+					hdc, rc.right / 2, 50, L"🔥 一 局 定 勝 負 🔥", 24,
+					RGB(255, 60, 60), TA_CENTER | TA_BASELINE, 0, L"Microsoft JhengHei UI", FW_BOLD
+				);
+			}
+			const auto& suits = GetSuits();
+			const auto& values = GetCardValues();
+			const auto& seq = GetSequenceLabels();
+			Card card(values[currentValueIndex_], suits[currentSuitIndex_]);
+			int cardW = Card::GetWidth();
+			int cardH = Card::GetHeight();
+			int centerX = (rc.left + rc.right) / 2;
+			int centerY = (rc.top + rc.bottom) / 2 + 20;
+			int cardLeft = centerX - cardW / 2;
+			int cardTop = centerY - cardH / 2;
+			card.Draw(hdc, cardLeft, cardTop);
+			TextRenderer::Draw(
+				hdc,
+				cardLeft + cardW + 100,
+				centerY + 20,
+				seq[currentShownSeqIndex_],
+				64,
+				RGB(0, 90, 180),
+				TA_CENTER | TA_BASELINE,
+				0,
+				L"Segoe UI",
+				FW_BOLD
+			);
+			std::wstringstream ss;
+			ss << L"第 " << deckPos_ << L" / 52 張";
+			TextRenderer::Draw(
+				hdc,
+				30,
+				rc.bottom - 30,
+				ss.str(),
+				18,
+				RGB(80, 80, 80),
+				TA_LEFT | TA_BASELINE,
+				0,
+				L"Microsoft JhengHei UI",
+				FW_NORMAL
+			);
+		}
+		EndPaint(hwnd_, &ps);
+	}
+	LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+		switch (msg) {
+		case WM_COMMAND: {
+			switch (LOWORD(wParam)) {
+			case ID_MENU_START:
+				StartSequence(GameMode::SINGLE_PLAYER);
+				return 0;
+			case ID_DOUBLE:
+				StartSequence(GameMode::TWO_PLAYER);
+				return 0;
+			case ID_MENU_STOP:
+				StopSequence();
+				return 0;
+			case ID_MENU_EXIT:
+				DestroyWindow(hwnd_);
+				return 0;
+			case ID_HELP_ABOUT:
+				MessageBoxW(
+					hwnd_,
+					L"玩法：\n1. 單人賽：點選【開始】，數字吻合時按下 [空白鍵]\n2. 雙人賽：點選【雙人鍵盤競速】，進入刺激的一局定勝負模式！\n   當數字吻合時，玩家A按 [A]、玩家B按 [L] 搶答。\n   率先按對者直接獲勝！若亂按（不吻合卻按），則直接判對手獲勝！",
+					L"說明",
+					MB_OK | MB_ICONINFORMATION
+				);
+				return 0;
+			}
+			break;
+		}
+					   // 核心修改：所有鍵盤判定全數納入 WM_KEYDOWN 內部管理
+		case WM_KEYDOWN: {
+			if (!running_ || !hasCurrentItem_) break;
+
+			// 單人計時賽模式：按空白鍵
+			if (mode_ == GameMode::SINGLE_PLAYER) {
+				if (wParam == VK_SPACE) {
+					HandleSpacePressed();
+					return 0;
+				}
+			}
+			// 雙人競速模式：按 A 鍵或 L 鍵
+			else if (mode_ == GameMode::TWO_PLAYER) {
+				if (wParam == 'A' || wParam == 'a') {
+					HandleTwoPlayerKeyPress(Player::PLAYER_A);
+					return 0;
+				}
+				else if (wParam == 'L' || wParam == 'l') {
+					HandleTwoPlayerKeyPress(Player::PLAYER_B);
+					return 0;
+				}
+			}
+			break;
+		}
+		case WM_TIMER: {
+			if (wParam == TIMER_ID && running_) {
+				if (deckPos_ < deckOrder_.size()) {
+					ShowNextItem();
+					ScheduleNextTimer();
+				}
+				else {
+					HandleGameEnd();
+				}
+			}
+			return 0;
+		}
+		case WM_PAINT:
+			OnPaint();
+			return 0;
+		case WM_DESTROY:
+			KillTimer(hwnd_, TIMER_ID);
+			PostQuitMessage(0);
+			return 0;
+		}
+		return DefWindowProcW(hwnd_, msg, wParam, lParam);
+	}
+public:
+	static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+		PokerWindowApp* pThis = nullptr;
+		if (msg == WM_NCCREATE) {
+			CREATESTRUCTW* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+			pThis = static_cast<PokerWindowApp*>(cs->lpCreateParams);
+			SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pThis));
+			pThis->hwnd_ = hwnd;
+		}
+		else {
+			pThis = reinterpret_cast<PokerWindowApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+		}
+		if (pThis) {
+			return pThis->HandleMessage(msg, wParam, lParam);
+		}
+		return DefWindowProcW(hwnd, msg, wParam, lParam);
+	}
+};
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
 {
-    if (!flip)
-    {
-        TextOut(hdc, x, y, suit, lstrlen(suit));
-    }
-    else
-    {
-        SetGraphicsMode(hdc, GM_ADVANCED);
-
-        XFORM oldForm;
-        GetWorldTransform(hdc, &oldForm);
-
-        XFORM form;
-        form.eM11 = -1.0f;
-        form.eM12 = 0.0f;
-        form.eM21 = 0.0f;
-        form.eM22 = -1.0f;
-        form.eDx = (FLOAT)(2 * x + 20);
-        form.eDy = (FLOAT)(2 * y + 20);
-
-        SetWorldTransform(hdc, &form);
-        TextOut(hdc, x, y, suit, lstrlen(suit));
-        SetWorldTransform(hdc, &oldForm);
-    }
-}
-
-void DrawCornerFlip(HDC hdc, int x, int y, int w, int h, LPCTSTR value, LPCTSTR suit)
-{
-    SetGraphicsMode(hdc, GM_ADVANCED);
-
-    XFORM oldForm;
-    GetWorldTransform(hdc, &oldForm);
-
-    XFORM form;
-    form.eM11 = -1.0f;
-    form.eM12 = 0.0f;
-    form.eM21 = 0.0f;
-    form.eM22 = -1.0f;
-    form.eDx = (FLOAT)(2 * x + w);
-    form.eDy = (FLOAT)(2 * y + h);
-
-    SetWorldTransform(hdc, &form);
-
-    TextOut(hdc, x + 6, y + 5, value, lstrlen(value));
-    TextOut(hdc, x + 6, y + 22, suit, lstrlen(suit));
-
-    SetWorldTransform(hdc, &oldForm);
-}
-
-void DrawCard(
-    HDC hdc,
-    int x,
-    int y,
-    int w,
-    int h,
-    LPCTSTR value,
-    LPCTSTR suit,
-    COLORREF color)
-{
-    HBRUSH hWhite = CreateSolidBrush(RGB(255, 255, 255));
-    RECT rc = { x, y, x + w, y + h };
-    FillRect(hdc, &rc, hWhite);
-    DeleteObject(hWhite);
-
-    Rectangle(hdc, x, y, x + w, y + h);
-
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, color);
-
-    HFONT hSmall = CreateFont(
-        18, 0, 0, 0,
-        FW_BOLD,
-        FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        VARIABLE_PITCH,
-        _T("Times New Roman")
-    );
-
-    HFONT hMid = CreateFont(
-        24, 0, 0, 0,
-        FW_NORMAL,
-        FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        VARIABLE_PITCH,
-        _T("Times New Roman")
-    );
-
-    HFONT hBig = CreateFont(
-        52, 0, 0, 0,
-        FW_NORMAL,
-        FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        VARIABLE_PITCH,
-        _T("Times New Roman")
-    );
-
-    SelectObject(hdc, hSmall);
-
-    TextOut(hdc, x + 6, y + 5, value, lstrlen(value));
-    TextOut(hdc, x + 6, y + 22, suit, lstrlen(suit));
-
-    DrawCornerFlip(hdc, x, y, w, h, value, suit);
-
-    int num = 0;
-
-    if (lstrcmp(value, _T("A")) == 0) num = 1;
-    else if (lstrcmp(value, _T("2")) == 0) num = 2;
-    else if (lstrcmp(value, _T("3")) == 0) num = 3;
-    else if (lstrcmp(value, _T("4")) == 0) num = 4;
-    else if (lstrcmp(value, _T("5")) == 0) num = 5;
-    else if (lstrcmp(value, _T("6")) == 0) num = 6;
-    else if (lstrcmp(value, _T("7")) == 0) num = 7;
-    else if (lstrcmp(value, _T("8")) == 0) num = 8;
-    else if (lstrcmp(value, _T("9")) == 0) num = 9;
-    else if (lstrcmp(value, _T("10")) == 0) num = 10;
-
-    if (num == 0)
-    {
-        SelectObject(hdc, hBig);
-        TextOut(hdc, x + w / 2 - 18, y + h / 2 - 30, value, lstrlen(value));
-    }
-    else
-    {
-        SelectObject(hdc, hMid);
-
-        if (num == 1)
-        {
-            DrawSuit(hdc, x + 38, y + 58, suit);
-        }
-        else if (num == 2)
-        {
-            DrawSuit(hdc, x + 38, y + 22, suit);
-            DrawSuit(hdc, x + 31, y + 92, suit, true);
-        }
-        else if (num == 3)
-        {
-            DrawSuit(hdc, x + 38, y + 18, suit);
-            DrawSuit(hdc, x + 38, y + 58, suit);
-            DrawSuit(hdc, x + 30, y + 98, suit, true);
-        }
-        else if (num == 4)
-        {
-            DrawSuit(hdc, x + 22, y + 20, suit);
-            DrawSuit(hdc, x + 55, y + 20, suit);
-
-            DrawSuit(hdc, x + 14, y + 92, suit, true);
-            DrawSuit(hdc, x + 47, y + 92, suit, true);
-        }
-        else if (num == 5)
-        {
-            DrawSuit(hdc, x + 22, y + 18, suit);
-            DrawSuit(hdc, x + 55, y + 18, suit);
-
-            DrawSuit(hdc, x + 38, y + 58, suit);
-
-            DrawSuit(hdc, x + 14, y + 96, suit, true);
-            DrawSuit(hdc, x + 47, y + 96, suit, true);
-        }
-        else if (num == 6)
-        {
-            DrawSuit(hdc, x + 22, y + 14, suit);
-            DrawSuit(hdc, x + 55, y + 14, suit);
-
-            DrawSuit(hdc, x + 22, y + 54, suit);
-            DrawSuit(hdc, x + 55, y + 54, suit);
-
-            DrawSuit(hdc, x + 14, y + 94, suit, true);
-            DrawSuit(hdc, x + 47, y + 94, suit, true);
-        }
-        else if (num == 7)
-        {
-            DrawSuit(hdc, x + 22, y + 12, suit);
-            DrawSuit(hdc, x + 55, y + 12, suit);
-
-            DrawSuit(hdc, x + 38, y + 34, suit);
-
-            DrawSuit(hdc, x + 22, y + 54, suit);
-            DrawSuit(hdc, x + 55, y + 54, suit);
-
-            DrawSuit(hdc, x + 14, y + 94, suit, true);
-            DrawSuit(hdc, x + 47, y + 94, suit, true);
-        }
-        else if (num == 8)
-        {
-            DrawSuit(hdc, x + 22, y + 16, suit);
-            DrawSuit(hdc, x + 55, y + 16, suit);
-
-            DrawSuit(hdc, x + 38, y + 40, suit);
-
-            DrawSuit(hdc, x + 22, y + 63, suit);
-            DrawSuit(hdc, x + 55, y + 63, suit);
-
-            DrawSuit(hdc, x + 30, y + 90, suit, true);
-
-            DrawSuit(hdc, x + 14, y + 114, suit, true);
-            DrawSuit(hdc, x + 47, y + 114, suit, true);
-        }
-        else if (num == 9)
-        {
-            DrawSuit(hdc, x + 22, y + 8, suit);
-            DrawSuit(hdc, x + 55, y + 8, suit);
-
-            DrawSuit(hdc, x + 38, y + 28, suit);
-
-            DrawSuit(hdc, x + 22, y + 48, suit);
-            DrawSuit(hdc, x + 55, y + 48, suit);
-
-            DrawSuit(hdc, x + 14, y + 76, suit, true);
-            DrawSuit(hdc, x + 47, y + 76, suit, true);
-
-            DrawSuit(hdc, x + 14, y + 108, suit, true);
-            DrawSuit(hdc, x + 47, y + 108, suit, true);
-        }
-        else if (num == 10)
-        {
-            DrawSuit(hdc, x + 22, y + 14, suit);
-            DrawSuit(hdc, x + 55, y + 14, suit);
-
-            DrawSuit(hdc, x + 38, y + 34, suit);
-
-            DrawSuit(hdc, x + 22, y + 52, suit);
-            DrawSuit(hdc, x + 55, y + 52, suit);
-
-            DrawSuit(hdc, x + 14, y + 76, suit, true);
-            DrawSuit(hdc, x + 47, y + 76, suit, true);
-
-            DrawSuit(hdc, x + 30, y + 98, suit, true);
-
-            DrawSuit(hdc, x + 14, y + 118, suit, true);
-            DrawSuit(hdc, x + 47, y + 118, suit, true);
-        }
-    }
-
-    DeleteObject(hSmall);
-    DeleteObject(hMid);
-    DeleteObject(hBig);
-}
-
-HMENU CreateAppMenu()
-{
-    HMENU hMenuBar = CreateMenu();
-
-    AppendMenu(hMenuBar, MF_STRING, ID_SINGLE, _T("單人計時賽"));
-    AppendMenu(hMenuBar, MF_STRING, ID_DOUBLE, _T("雙人鍵盤競速"));
-    AppendMenu(hMenuBar, MF_STRING, ID_MUTIPLE, _T("多人視覺辨識賽"));
-    AppendMenu(hMenuBar, MF_STRING, ID_HELP_ABOUT, _T("說明"));
-
-    return hMenuBar;
-}
-
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    switch (msg)
-    {
-    case WM_COMMAND:
-        switch (LOWORD(wParam))
-        {
-        case ID_SINGLE:
-            MessageBox(hwnd, _T("單人模式"), _T("Menu"), MB_OK);
-            break;
-
-        case ID_DOUBLE:
-            MessageBox(hwnd, _T("雙人模式"), _T("Menu"), MB_OK);
-            break;
-
-        case ID_MUTIPLE:
-            MessageBox(hwnd, _T("多人模式"), _T("Menu"), MB_OK);
-            break;
-
-        case ID_HELP_ABOUT:
-            MessageBox(hwnd, _T("心臟病"), _T("About"), MB_OK);
-            break;
-        }
-        break;
-
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-
-        RECT rect;
-        GetClientRect(hwnd, &rect);
-        FillRect(hdc, &rect, (HBRUSH)(COLOR_WINDOW + 1));
-
-        HFONT hTitle = CreateFont(
-            30, 0, 0, 0,
-            FW_BOLD,
-            FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY,
-            VARIABLE_PITCH,
-            _T("微軟正黑體")
-        );
-
-        SelectObject(hdc, hTitle);
-        TextOut(hdc, 10, 10, _T("撲克牌畫面"), 6);
-        DeleteObject(hTitle);
-
-        LPCTSTR values[] =
-        {
-            _T("A"), _T("2"), _T("3"), _T("4"),
-            _T("5"), _T("6"), _T("7"), _T("8"),
-            _T("9"), _T("10"), _T("J"), _T("Q"), _T("K")
-        };
-
-        LPCTSTR suits[] =
-        {
-            _T("♠"),
-            _T("♥"),
-            _T("♦"),
-            _T("♣")
-        };
-
-        COLORREF colors[] =
-        {
-            RGB(0, 0, 0),
-            RGB(255, 0, 0),
-            RGB(255, 0, 0),
-            RGB(0, 0, 0)
-        };
-
-        int cardW = 95;
-        int cardH = 145;
-
-        int startX = 10;
-        int startY = 55;
-
-        int gapX = 5;
-        int gapY = 8;
-
-        for (int s = 0; s < 4; s++)
-        {
-            for (int v = 0; v < 13; v++)
-            {
-                int x = startX + v * (cardW + gapX);
-                int y = startY + s * (cardH + gapY);
-
-                DrawCard(
-                    hdc,
-                    x,
-                    y,
-                    cardW,
-                    cardH,
-                    values[v],
-                    suits[s],
-                    colors[s]
-                );
-            }
-        }
-
-        EndPaint(hwnd, &ps);
-        break;
-    }
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-
-    default:
-        return DefWindowProc(hwnd, msg, wParam, lParam);
-    }
-
-    return 0;
-}
-
-int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE, LPTSTR, int nCmdShow)
-{
-    const TCHAR CLASS_NAME[] = _T("PokerWindow");
-
-    WNDCLASS wc = {};
-
-    wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-
-    if (!RegisterClass(&wc))
-    {
-        MessageBox(NULL, _T("Window Registration Failed!"), _T("Error"), MB_ICONERROR);
-        return 0;
-    }
-
-    HWND hwnd = CreateWindow(
-        CLASS_NAME,
-        _T("心臟病(第12組1142018 1142028 1142058)"),
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        1450,
-        760,
-        NULL,
-        NULL,
-        hInstance,
-        NULL
-    );
-
-    if (!hwnd)
-    {
-        MessageBox(NULL, _T("Window Creation Failed!"), _T("Error"), MB_ICONERROR);
-        return 0;
-    }
-
-    SetMenu(hwnd, CreateAppMenu());
-
-    ShowWindow(hwnd, nCmdShow);
-    UpdateWindow(hwnd);
-
-    MSG msg;
-
-    while (GetMessage(&msg, NULL, 0, 0))
-    {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-
-    return (int)msg.wParam;
+	PokerWindowApp app(hInstance);
+	if (!app.Create(nCmdShow)) {
+		return 0;
+	}
+
+	HWND hwndGame = FindWindowW(L"PokerCardWin32MenuReaction", nullptr);
+	if (hwndGame) {
+		ImmAssociateContext(hwndGame, NULL);
+	}
+	return app.Run();
 }
