@@ -266,14 +266,15 @@ private:
 	static constexpr UINT ID_MULTIPLE = 10003;
 	static constexpr UINT ID_HELP_ABOUT = 10004;
 
-	// 遊戲模式控制
 	GameMode mode_ = GameMode::NONE;
-
-	// 雙人賽勝負標籤 (0: 未定, 1: 玩家A勝, 2: 玩家B勝)
 	int matchWinner_ = 0;
-
-	// 記錄當前這張牌是否有任一玩家按過
 	bool currentCardProcessed_ = false;
+
+	// 將 DLL 載入常駐於記憶體
+	HMODULE hDll_ = nullptr;
+	typedef void (*CheckFunc)(HWND);
+	CheckFunc checkFunc_ = nullptr;
+
 public:
 	explicit PokerWindowApp(HINSTANCE hInstance)
 		: hInstance_(hInstance), hwnd_(nullptr), rng_(std::random_device{}()) {
@@ -299,6 +300,12 @@ public:
 			this
 		);
 		if (!hwnd_) return false;
+
+		hDll_ = LoadLibraryW(L"s1142018.dll");
+		if (hDll_) {
+			checkFunc_ = (CheckFunc)GetProcAddress(hDll_, "check");
+		}
+
 		SetMenu(hwnd_, CreateAppMenu());
 		ShowWindow(hwnd_, nCmdShow);
 		UpdateWindow(hwnd_);
@@ -328,10 +335,10 @@ private:
 	}
 	static const std::array<Suit, 4>& GetSuits() {
 		static const std::array<Suit, 4> suits = {
-		Suit{ L"♠", L"spade", RGB(0, 0, 0) },
-		Suit{ L"♥", L"heart", RGB(220, 0, 0) },
-		Suit{ L"♦", L"diamond", RGB(220, 0, 0) },
-		Suit{ L"♣", L"club", RGB(0, 0, 0) }
+		Suit{ L"\x2660", L"spade", RGB(0, 0, 0) },
+		Suit{ L"\x2665", L"heart", RGB(220, 0, 0) },
+		Suit{ L"\x2666", L"diamond", RGB(220, 0, 0) },
+		Suit{ L"\x2663", L"club", RGB(0, 0, 0) }
 		};
 		return suits;
 	}
@@ -384,12 +391,9 @@ private:
 		nextSeqIndex_ = 0;
 		currentShownSeqIndex_ = 0;
 		anyMatchOccurred_ = false;
-
-		matchWinner_ = 0; // 重設贏家
+		matchWinner_ = 0;
 		currentCardProcessed_ = false;
-
 		BuildShuffledDeck();
-
 		ShowNextItem();
 		ScheduleNextTimer();
 		InvalidateRect(hwnd_, nullptr, TRUE);
@@ -398,29 +402,20 @@ private:
 		KillTimer(hwnd_, TIMER_ID);
 		running_ = false;
 	}
-
-	// 核心修改：雙人一次定勝負搶答邏輯
 	void HandleTwoPlayerKeyPress(Player player) {
 		if (!running_ || !hasCurrentItem_ || currentCardProcessed_) return;
-
 		bool isMatch = IsCardAndTextMatched();
 		currentCardProcessed_ = true;
-
 		if (isMatch) {
-			// 吻合時按對了：按下的人獲勝
 			matchWinner_ = (player == Player::PLAYER_A) ? 1 : 2;
 		}
 		else {
-			// 不吻合時按錯了：沒按的人（對手）獲勝
 			matchWinner_ = (player == Player::PLAYER_A) ? 2 : 1;
 		}
-
-		// 判定出勝負，立刻停下鬧鐘並結算遊戲
 		StopSequence();
 		InvalidateRect(hwnd_, nullptr, TRUE);
 		HandleGameEnd();
 	}
-
 	void ScheduleNextTimer() {
 		KillTimer(hwnd_, TIMER_ID);
 		SetTimer(hwnd_, TIMER_ID, RandomIntervalMs(), nullptr);
@@ -435,7 +430,6 @@ private:
 		currentValueIndex_ = cardId % 13;
 		currentShownSeqIndex_ = nextSeqIndex_;
 		nextSeqIndex_ = (nextSeqIndex_ + 1) % 13;
-		shownTick_ = GetTickCount64();
 		hasCurrentItem_ = true;
 		if (IsCardAndTextMatched()) {
 			anyMatchOccurred_ = true;
@@ -453,7 +447,6 @@ private:
 		else if (mode_ == GameMode::TWO_PLAYER) {
 			std::wstringstream ss;
 			ss << L"【一局定勝負 賽事結果】\n\n";
-
 			if (matchWinner_ == 1) {
 				ss << L"🎉 恭喜 玩家 A (A鍵) 獲勝！";
 			}
@@ -463,7 +456,6 @@ private:
 			else {
 				ss << L"🤝 52張牌發完，無人觸發勝負條件。平手！";
 			}
-
 			MessageBoxW(hwnd_, ss.str().c_str(), L"比賽結束", MB_OK | MB_ICONINFORMATION);
 		}
 	}
@@ -499,9 +491,8 @@ private:
 		DeleteObject(bg);
 		if (hasCurrentItem_) {
 			if (mode_ == GameMode::TWO_PLAYER) {
-				// 雙人賽提示文字
 				TextRenderer::Draw(
-					hdc, rc.right / 2, 50, L"🔥 一 局 定 勝 負 🔥", 24,
+					hdc, rc.right / 2, 50, L"雙人模式", 24,
 					RGB(255, 60, 60), TA_CENTER | TA_BASELINE, 0, L"Microsoft JhengHei UI", FW_BOLD
 				);
 			}
@@ -572,18 +563,16 @@ private:
 			}
 			break;
 		}
-					   // 核心修改：所有鍵盤判定全數納入 WM_KEYDOWN 內部管理
-		case WM_KEYDOWN: {
+					   // 將原本的 WM_KEYDOWN 判定遷移至 WM_CHAR，徹底對齊 DLL 的開槍格式
+		case WM_CHAR: {
 			if (!running_ || !hasCurrentItem_) break;
-
-			// 單人計時賽模式：按空白鍵
 			if (mode_ == GameMode::SINGLE_PLAYER) {
-				if (wParam == VK_SPACE) {
+				// 接收來自 DLL 發送的 32 (空白鍵)
+				if (wParam == 32) {
 					HandleSpacePressed();
 					return 0;
 				}
 			}
-			// 雙人競速模式：按 A 鍵或 L 鍵
 			else if (mode_ == GameMode::TWO_PLAYER) {
 				if (wParam == 'A' || wParam == 'a') {
 					HandleTwoPlayerKeyPress(Player::PLAYER_A);
@@ -600,6 +589,13 @@ private:
 			if (wParam == TIMER_ID && running_) {
 				if (deckPos_ < deckOrder_.size()) {
 					ShowNextItem();
+					UpdateWindow(hwnd_);
+
+					if (checkFunc_) {
+						shownTick_ = GetTickCount64();
+						checkFunc_(hwnd_);
+					}
+
 					ScheduleNextTimer();
 				}
 				else {
@@ -613,6 +609,7 @@ private:
 			return 0;
 		case WM_DESTROY:
 			KillTimer(hwnd_, TIMER_ID);
+			if (hDll_) FreeLibrary(hDll_);
 			PostQuitMessage(0);
 			return 0;
 		}
